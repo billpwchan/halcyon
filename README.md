@@ -155,15 +155,14 @@ The URL accepts a few parameters:
 
 ## How it works
 
-```mermaid
-flowchart LR
-  A[Sky and clouds] --> B[Shadow map]
-  B --> C[Opaque pass<br>MSAA, HDR]
-  C --> D[Resolve<br>colour and depth]
-  D --> E[Water<br>refraction, foam]
-  E --> F[Effects<br>particles, rain]
-  F --> G[Post<br>bloom, shafts, ACES, grade]
-```
+Each frame runs these passes in order (`src/core/pipeline.js`):
+1. **Sky and clouds.** The atmosphere, and cumulus ray-marched at half resolution and reprojected.
+2. **Shadows.** One sun shadow map. Shadow-only meshes are drawn here and nowhere else.
+3. **Opaque.** Terrain, plants, reef, village and animals, in HDR with MSAA.
+4. **Occlusion and resolve.** GTAO runs at half resolution on the opaque depth. Colour and depth are then resolved, so the water can see what lies beneath it.
+5. **Water.** Refraction with depth absorption, reflections, foam, swash and wakes.
+6. **Effects.** Whale and dolphin spray, fireflies and the lighthouse beam.
+7. **Post.** Bloom and sun shafts, then one composite to the screen with exposure, ACES, the grade, underwater light and lens drops.
 
 ```
 src/
