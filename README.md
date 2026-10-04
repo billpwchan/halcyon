@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://halcyon.52-198-144-26.sslip.io/"><img src="docs/media/banner.jpg" alt="Halcyon: a forested volcanic peak at first light over a calm lagoon, a dhow moored by the pier" width="100%"></a>
+  <a href="https://halcyon.billpwchan.art/"><img src="docs/media/banner.jpg" alt="Halcyon: a forested volcanic peak at first light over a calm lagoon, a dhow moored by the pier" width="100%"></a>
 </p>
 
 <p align="center">
@@ -8,14 +8,14 @@
 </p>
 
 <p align="center">
-  <a href="https://halcyon.52-198-144-26.sslip.io/"><b>Open the live island</b></a>
+  <a href="https://halcyon.billpwchan.art/"><b>Open the live island</b></a>
   &nbsp;·&nbsp; <a href="#run-it-locally">Run it locally</a>
   &nbsp;·&nbsp; <a href="#how-it-works">How it works</a>
   &nbsp;·&nbsp; <a href="README.zh-CN.md">中文</a>
 </p>
 
 <p align="center">
-  <a href="https://halcyon.52-198-144-26.sslip.io/"><img alt="Live demo" src="https://img.shields.io/badge/live_demo-open_the_island-0e7c86?style=flat-square"></a>
+  <a href="https://halcyon.billpwchan.art/"><img alt="Live demo" src="https://img.shields.io/badge/live_demo-open_the_island-0e7c86?style=flat-square"></a>
   <a href="https://threejs.org"><img alt="three.js r186" src="https://img.shields.io/badge/three.js-r186-1f2328?style=flat-square&logo=threedotjs"></a>
   <img alt="WebGL2" src="https://img.shields.io/badge/WebGL2-60_fps-a23b2c?style=flat-square&logo=webgl&logoColor=white">
   <a href="https://github.com/billpwchan/halcyon/actions/workflows/build.yml"><img alt="Build" src="https://img.shields.io/github/actions/workflow/status/billpwchan/halcyon/build.yml?style=flat-square&label=build"></a>
@@ -194,6 +194,16 @@ performance.
 | `scripts/massif.mjs` | The mountain's relief on the heightfield grid | USGS GeoTIFFs in `.cache/dem` (see [CREDITS.md](CREDITS.md)) |
 | `scripts/textures.mjs` | Ground and wood surfaces as webp | Poly Haven; needs `cwebp` |
 | `scripts/perf.mjs` | Frame-time percentiles from a headed browser | A running dev server |
+
+## More scenes
+
+The same author's other real-time scenes, each open source and running in the browser.
+
+<table><tr>
+<td width="33%" valign="top"><a href="https://github.com/billpwchan/sakura-fantasy"><img src="https://raw.githubusercontent.com/billpwchan/sakura-fantasy/main/docs/media/social-preview.jpg" alt="桜幻想 Sakura Fantasy"></a><br><b><a href="https://github.com/billpwchan/sakura-fantasy">桜幻想 Sakura Fantasy</a></b><br><sub>A boat journey through a Japanese river valley in four seasons · <a href="https://sakura.billpwchan.art/">live</a></sub></td>
+<td width="33%" valign="top"><a href="https://github.com/billpwchan/utsuroi"><img src="https://raw.githubusercontent.com/billpwchan/utsuroi/main/docs/media/social-preview.jpg" alt="移ろい Utsuroi"></a><br><b><a href="https://github.com/billpwchan/utsuroi">移ろい Utsuroi</a></b><br><sub>A Kyoto house and garden, walked from first light to last · <a href="https://utsuroi.billpwchan.art/">live</a></sub></td>
+<td width="33%" valign="top"><a href="https://github.com/billpwchan/neon-zenith"><img src="https://raw.githubusercontent.com/billpwchan/neon-zenith/main/docs/media/social-preview.jpg" alt="霓虹天頂 Neon Zenith"></a><br><b><a href="https://github.com/billpwchan/neon-zenith">霓虹天頂 Neon Zenith</a></b><br><sub>A rain-soaked cyberpunk Hong Kong you can fly through (WebGPU) · <a href="https://zenith.billpwchan.art/">live</a></sub></td>
+</tr></table>
 
 ## Credits
 

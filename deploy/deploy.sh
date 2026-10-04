@@ -33,4 +33,4 @@ for i in $(seq 1 30); do sudo docker exec halcyon wget -q -O - http://127.0.0.1:
 echo
 echo "released $STAMP"
 REMOTE
-curl -fsS -o /dev/null -w "live %{http_code}\n" https://halcyon.52-198-144-26.sslip.io/
+curl -fsS -o /dev/null -w "live %{http_code}\n" https://halcyon.billpwchan.art/
