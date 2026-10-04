@@ -118,14 +118,16 @@ while the camera moves.
 
 | View | p50 | p95 | Frames over 20 ms | Render scale |
 |---|---|---|---|---|
-| Village walk | 16.7 ms | 18.6 ms | 1.1% | 0.65 |
-| Peak approach | 16.7 ms | 18.7 ms | 1.7% | 0.56 |
-| Aerial orbit | 16.7 ms | 18.6 ms | 0.1% | 0.64 |
-| Forest walk | 16.7 ms | 18.6 ms | 0.5% | 0.64 |
-| Reef glide | 16.7 ms | 18.7 ms | 3.3% | 0.80 |
+| Village walk | 16.7 ms | 17.6 ms | 3.1% | 0.95–1 |
+| Peak approach | 16.7 ms | 17.6 ms | 1.3% | 0.9–1 |
+| Aerial orbit | 16.7 ms | 17.5 ms | 0% | 1 |
+| Forest walk | 16.7 ms | 17.6 ms | 1.1% | 0.95–1 |
+| Reef glide | 16.7 ms | 17.5 ms | 0% | 0.95–1 |
 
-The governor lowers the render scale when the 75th-percentile frame time rises above 19.5 ms. It tries a step back up
-only after a quiet spell, and it undoes any step that does not help.
+Render scale 1 is the display's full resolution, 3840×2160 here. The governor lowers it when the 75th-percentile frame
+time rises above 19.5 ms. It ignores a lone long frame from a shader compile or a texture upload, and it tries a step
+back up only after a quiet spell, undoing any step that does not help. Below full resolution the frame is upscaled
+with a clamped Catmull-Rom filter and sharpened in proportion, so it stays crisp on a 2× display.
 
 ## Run it locally
 

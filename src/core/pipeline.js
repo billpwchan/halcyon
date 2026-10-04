@@ -22,6 +22,9 @@ export class Pipeline {
     renderer.setPixelRatio(1);
     this.renderer = renderer;
     this.canvas = canvas;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // at 2x the pixels are small enough that 2 samples resolve edges as well as 4 (frozen-frame A/B), for less fill
+    this.msaa = this.dpr >= 1.5 ? 2 : 4;
 
     this.makeTargets(4, 4);
     // stands in for last frame's depth on the frame after the targets are rebuilt: "nothing covers the sky"
@@ -86,7 +89,6 @@ export class Pipeline {
     this.scale = 1;
     this.maxScale = 1;
     this.minScale = 0.45;
-    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.frameTimes = new Float32Array(90);
     this.ftIdx = 0;
     this.ftCount = 0;
@@ -106,8 +108,10 @@ export class Pipeline {
     this.settleLen = 0;
     this.trialMiss = 0;
     this.holdScale = 0;
+    this.holdMiss = 0;
     this.holdFor = 20;
     this.clock = 0;
+    this.stallRate = 0;
     this._sorted = new Float32Array(90);
     this.frame = 0;
     this.sunUv = new THREE.Vector2();
@@ -130,7 +134,7 @@ export class Pipeline {
     for (const t of [this.rtOpaque, this.rtMain]) if (t) { t.depthTexture.dispose(); t.dispose(); }
     const depthA = new THREE.DepthTexture(W, H);
     depthA.type = THREE.UnsignedIntType;
-    this.rtOpaque = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: 4, depthBuffer: true, depthTexture: depthA, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
+    this.rtOpaque = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, samples: this.msaa, depthBuffer: true, depthTexture: depthA, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
     const depthB = new THREE.DepthTexture(W, H);
     depthB.type = THREE.UnsignedIntType;
     this.rtMain = new THREE.WebGLRenderTarget(W, H, { type: THREE.HalfFloatType, depthBuffer: true, depthTexture: depthB, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, generateMipmaps: false });
@@ -158,6 +162,10 @@ export class Pipeline {
   govern(dtMs) {
     if (this.lockScale) return;
     this.clock += dtMs / 1000;
+    // a lone frame far over budget is a shader compiled or a texture uploaded while streaming, not too many pixels: the
+    // GPU short of time misses by a refresh, not by several. Such frames stay out of the count unless they come steadily
+    this.stallRate += ((dtMs > 45 ? 1 : 0) - this.stallRate) * 0.03;
+    if (dtMs > 45 && this.stallRate < 0.15) return;
     // reallocating the targets stalls a few frames; those say nothing about the new scale, so they are not counted.
     // Counting starts after a run of clean frames. A probe that cannot produce that run within its settle time has
     // already failed; any other change just starts counting when the time runs out
@@ -195,8 +203,9 @@ export class Pipeline {
     for (let i = n - 1; i >= 0 && arr[i] > 21; i--) misses++;
     // the target is 60 fps whatever the display; rAF timestamps jitter by a couple of ms around 16.7
     // a hold (below) is for stutter a lower scale did not cure. A tenth of the frames late anywhere but the scale that
-    // set the hold is worth a try regardless; at that scale it would only repeat the failed step
-    const heavy = misses > n * 0.1 && Math.abs(this.scale - this.holdScale) > 0.005;
+    // set the hold is worth a try regardless; at that scale it would only repeat the failed step, unless the misses have
+    // since doubled: then it is a different load (a heavier view after the streaming that set the hold)
+    const heavy = misses > n * 0.1 && (Math.abs(this.scale - this.holdScale) > 0.005 || misses > n * this.holdMiss * 2);
     const slow = p75 > 19.5, trickle = misses > n * 0.03 && (this.clock > this.missHold || heavy);
     const over = slow || trickle;
     this.clean = dtMs > 21 ? 0 : this.clean + dtMs / 1000;
@@ -214,14 +223,17 @@ export class Pipeline {
       if (!slow && misses > n * 0.015 && misses / n > this.trialMiss * 0.6) {
         this.missHold = this.clock + this.holdFor;
         this.holdScale = from;
+        this.holdMiss = misses / n;
         this.holdFor = Math.min(120, this.holdFor * 2);
         this.setScale(from);
       }
     } else if (slow) {
       this.setScale(this.scale * 0.88);
     } else if (trickle) {
+      // a trickle asks for a small step: a full one overshoots below what the GPU can hold, and the probes back up
+      // then climb into the misses again
       const from = this.scale;
-      if (this.setScale(this.scale * 0.88)) { this.trialFrom = from; this.trialMiss = misses / n; }
+      if (this.setScale(this.scale * 0.95)) { this.trialFrom = from; this.trialMiss = misses / n; }
     } else if (this.scale < this.maxScale && this.clean > this.probeWait && this.step > 1.015) {
       this.preProbe = this.scale;
       if (this.setScale(this.scale * this.step)) {

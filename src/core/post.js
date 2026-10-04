@@ -98,7 +98,7 @@ export class Post {
       precision highp float;
       uniform sampler2D tScene, tBloom, tShaft, tDepth, tAdapt;
       uniform vec2 uSrcTexel, uSunUv, uNearFar;
-      uniform float uExposure, uBloom, uShaft, uTime, uSharpen, uVignette, uSat, uFade, uAspect, uNightK, uUnder, uDrops, uChroma, uContrast;
+      uniform float uUpscale, uExposure, uBloom, uShaft, uTime, uSharpen, uVignette, uSat, uFade, uAspect, uNightK, uUnder, uDrops, uChroma, uContrast;
       uniform vec3 uWB, uFadeCol, uShaftCol, uLift;
       varying vec2 vUv;
       vec3 aces(vec3 x){
@@ -129,6 +129,24 @@ export class Post {
         }
         return vec3(acc, m);
       }
+      // 5-tap Catmull-Rom (the four corner taps carry almost no weight): a bilinear stretch of a reduced-resolution frame
+      // reads as soft on a 2x display
+      vec3 catmullRom(vec2 uv){
+        vec2 size = 1.0 / uSrcTexel;
+        vec2 p = uv * size;
+        vec2 t1 = floor(p - 0.5) + 0.5;
+        vec2 f = p - t1;
+        vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));
+        vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);
+        vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));
+        vec2 w3 = f * f * (-0.5 + 0.5 * f);
+        vec2 w12 = w1 + w2;
+        vec2 t0 = (t1 - 1.0) * uSrcTexel, t3 = (t1 + 2.0) * uSrcTexel, t12 = (t1 + w2 / w12) * uSrcTexel;
+        float a = w12.x * w0.y, b = w0.x * w12.y, c = w12.x * w12.y, d = w3.x * w12.y, e = w12.x * w3.y;
+        vec3 r = texture2D(tScene, vec2(t12.x, t0.y)).rgb * a + texture2D(tScene, vec2(t0.x, t12.y)).rgb * b
+               + texture2D(tScene, t12).rgb * c + texture2D(tScene, vec2(t3.x, t12.y)).rgb * d + texture2D(tScene, vec2(t12.x, t3.y)).rgb * e;
+        return r / (a + b + c + d + e);
+      }
       void main(){
         vec2 uv = vUv;
         vec3 dr = vec3(0.0);
@@ -137,15 +155,18 @@ export class Post {
           // a gentle wobble of everything seen through water
           uv += vec2(sin(uv.y * 22.0 + uTime * 1.7), cos(uv.x * 19.0 + uTime * 1.3)) * 0.0018;
         }
-        vec3 c = texture2D(tScene, uv).rgb;
+        vec3 c = uUpscale > 0.5 ? catmullRom(uv) : texture2D(tScene, uv).rgb;
         vec2 cuv = vUv - 0.5;
         if (uChroma > 0.0) {
           vec2 off = cuv * dot(cuv, cuv) * uChroma;
           c.r = texture2D(tScene, uv - off).r;
           c.b = texture2D(tScene, uv + off).b;
         }
-        vec3 n = texture2D(tScene, uv + vec2(0.0, uSrcTexel.y)).rgb + texture2D(tScene, uv - vec2(0.0, uSrcTexel.y)).rgb
-               + texture2D(tScene, uv + vec2(uSrcTexel.x, 0.0)).rgb + texture2D(tScene, uv - vec2(uSrcTexel.x, 0.0)).rgb;
+        vec3 n0 = texture2D(tScene, uv + vec2(0.0, uSrcTexel.y)).rgb, n1 = texture2D(tScene, uv - vec2(0.0, uSrcTexel.y)).rgb;
+        vec3 n2 = texture2D(tScene, uv + vec2(uSrcTexel.x, 0.0)).rgb, n3 = texture2D(tScene, uv - vec2(uSrcTexel.x, 0.0)).rgb;
+        // the bicubic lobes overshoot around HDR highlights; the cross neighbours bound what the pixel can be
+        if (uUpscale > 0.5) c = clamp(c, min(min(n0, n1), min(n2, n3)), max(max(n0, n1), max(n2, n3)));
+        vec3 n = n0 + n1 + n2 + n3;
         vec3 hp = c - n * 0.25;
         float lc = dot(c, vec3(0.3, 0.59, 0.11));
         c = max(c + hp * uSharpen / (1.0 + lc * 2.0), 0.0);
@@ -186,7 +207,7 @@ export class Post {
       }`, {
       tScene: { value: null }, tBloom: { value: null }, tShaft: { value: null }, tDepth: { value: null }, tAdapt: { value: null },
       uSrcTexel: { value: new THREE.Vector2() }, uSunUv: { value: new THREE.Vector2(-9, -9) }, uNearFar: { value: new THREE.Vector2() },
-      uExposure: { value: 1 }, uBloom: { value: 0.045 }, uShaft: { value: 0 }, uTime: { value: 0 }, uSharpen: { value: 0.18 },
+      uUpscale: { value: 0 }, uExposure: { value: 1 }, uBloom: { value: 0.045 }, uShaft: { value: 0 }, uTime: { value: 0 }, uSharpen: { value: 0.18 },
       uVignette: { value: 0.42 }, uSat: { value: 1.06 }, uFade: { value: 0 }, uAspect: { value: 1 }, uNightK: { value: 0 },
       uUnder: { value: 0 }, uDrops: { value: 0 }, uChroma: { value: 0.0012 }, uContrast: { value: 1.04 },
       uWB: { value: new THREE.Vector3(1, 1, 1) }, uFadeCol: { value: new THREE.Vector3() }, uShaftCol: { value: new THREE.Vector3(1, 0.8, 0.55) },
@@ -257,6 +278,10 @@ export class Post {
     const u = this.composite.uniforms;
     u.tScene.value = sceneTex; u.tBloom.value = bloomTex; u.tShaft.value = shaftTex; u.tDepth.value = depthTex;
     u.uSrcTexel.value.set(1 / this.srcW, 1 / this.srcH);
+    // how far the frame is stretched to the canvas: the upscale filter and a stronger sharpen only when it is
+    const k = Math.min(1, this.srcW / Math.max(1, this.renderer.domElement.width));
+    u.uUpscale.value = k < 0.99 ? 1 : 0;
+    u.uSharpen.value = 0.18 + 0.4 * (1 - k);
     fs.render(this.renderer, this.composite, null);
   }
 }

@@ -63,20 +63,28 @@ Pass Light, Palm Cay, the Drop-off. All shapes are in `src/world/layout.js`; hei
 ## Smoothness
 - Boot warm-up: `compileAsync` on the real render target, then `initTexture` for every map, so no first-use hitch.
 - HD streaming: maps upload over several frames (4K block rows ~2 MB a frame) before the swap.
-- Governor: render scale steps down on p75 > 19.5 ms; a trickle of misses gets a trial step that reverts unless it
-  helps; probing back up is held off with a doubling back-off.
+- Governor: render scale steps down by 0.88 on p75 > 19.5 ms; a trickle of misses gets a trial step of 0.95 that
+  reverts unless it helps; probing back up is held off with a doubling back-off. Lone frames over 45 ms (a compile, an upload) are left
+  out of the count unless they come steadily, and a hold set by a failed trial lifts once the misses double.
+- MSAA: 4x below 1.5 DPR, 2x above it. At 2x a frozen-frame A/B shows no visible difference, and it frees about
+  1.5 ms at 4K.
+- Upscale: below scale 1 the composite reads the frame through a 5-tap Catmull-Rom, clamped to the cross neighbours,
+  and the sharpen grows as the scale drops. On a 2x display a bilinear stretch below about 0.85 reads as soft.
+- Terrain splat: each layer is sampled only where it has weight, with `textureGrad` from world-position gradients
+  taken before any branch (inside a branch a pixel's quad neighbours may not run). This took the terrain from 8.7 ms
+  to about 1 ms at 3264x1836.
 
 ## Measured (Apple Silicon, Chrome, 1920x1080@2x headed, governed)
 From `scripts/perf.mjs`: 30 s dwells, with no other GPU or heavy process running. Frame times are in ms. The scale
-column is the render scale the governor settled on.
+column is the range of render scales the governor used during the dwell (1 = 3840x2160).
 
 | View | p50 | p95 | p99 | frames over 20 ms | scale |
 |---|---|---|---|---|---|
-| Village walk | 16.7 | 18.6 | 31.4 | 1.1% | 0.65 |
-| Peak approach | 16.7 | 18.7 | 33.3 | 1.7% | 0.56 |
-| Aerial orbit | 16.7 | 18.6 | 18.7 | 0.1% | 0.64 |
-| Forest walk | 16.7 | 18.6 | 18.7 | 0.5% | 0.64 |
-| Reef glide | 16.7 | 18.7 | 33.4 | 3.3% | 0.80 |
+| Village walk | 16.7 | 17.6 | 33.4 | 3.1% | 0.95–1 |
+| Peak approach | 16.7 | 17.6 | 33.3 | 1.3% | 0.9–1 |
+| Aerial orbit | 16.7 | 17.5 | 17.7 | 0% | 1 |
+| Forest walk | 16.7 | 17.6 | 33.1 | 1.1% | 0.95–1 |
+| Reef glide | 16.7 | 17.5 | 17.7 | 0% | 0.95–1 |
 
 ## Deploy
 `dist` is a static site, so any static host works; serve `.ktx2` as `image/ktx2` and `.wasm` as `application/wasm`.

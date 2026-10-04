@@ -104,15 +104,24 @@ export function createTerrain(hf, vegTex, texC, texN) {
       float tCanopy, tBank;
       const vec3 tVil = vec3(${VILLAGE.x.toFixed(1)}, ${VILLAGE.z.toFixed(1)}, ${VILLAGE.r.toFixed(1)});
       ${SHORE}
+      // Layers are sampled only where they carry weight, inside branches where a pixel's neighbours may not run, so
+      // every sample takes its gradients from the world position's, which are taken before any branch
+      vec3 tDx, tDy;
       vec3 tri(sampler2DArray s, float layer, vec3 p, vec3 w, float sc){
-        return texture(s, vec3(p.zy * sc, layer)).rgb * w.x + texture(s, vec3(p.xz * sc, layer)).rgb * w.y + texture(s, vec3(p.xy * sc, layer)).rgb * w.z;
+        vec3 r = vec3(0.0);
+        if (w.x > 0.0) r += textureGrad(s, vec3(p.zy * sc, layer), tDx.zy * sc, tDy.zy * sc).rgb * w.x;
+        if (w.y > 0.0) r += textureGrad(s, vec3(p.xz * sc, layer), tDx.xz * sc, tDy.xz * sc).rgb * w.y;
+        if (w.z > 0.0) r += textureGrad(s, vec3(p.xy * sc, layer), tDx.xy * sc, tDy.xy * sc).rgb * w.z;
+        return r;
+      }
+      vec3 lay1(sampler2DArray s, float layer, vec2 p, float sc){
+        return textureGrad(s, vec3(p * sc, layer), tDx.xz * sc, tDy.xz * sc).rgb;
       }
       // two scales, rotated, hide the tiling of large flat layers
-      vec3 lay2(sampler2DArray s, float layer, vec2 uv, float k){
-        vec3 a = texture(s, vec3(uv, layer)).rgb;
-        vec2 r = mat2(0.8, 0.6, -0.6, 0.8) * uv * 0.31 + 0.37;
-        vec3 b = texture(s, vec3(r, layer)).rgb;
-        return mix(a, b, k);
+      vec3 lay2(sampler2DArray s, float layer, vec2 p, float sc, float k){
+        mat2 R = mat2(0.8, 0.6, -0.6, 0.8) * (sc * 0.31);
+        vec3 b = textureGrad(s, vec3(R * p + 0.37, layer), R * tDx.xz, R * tDy.xz).rgb;
+        return mix(lay1(s, layer, p, sc), b, k);
       }
       float lum(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
     `,
@@ -128,6 +137,7 @@ export function createTerrain(hf, vegTex, texC, texN) {
         '#include <map_fragment>',
         /* glsl */ `
         vec2 tuv = hHfUv(vHWP.xz);
+        tDx = dFdx(vHWP); tDy = dFdy(vHWP);
         tCanopy = 0.0;
         float tE = uHF.z / uHF.w;
         vec3 tNg = normalize(vec3(hTerrainH(vHWP.xz - vec2(tE, 0.0)) - hTerrainH(vHWP.xz + vec2(tE, 0.0)), 2.0 * tE, hTerrainH(vHWP.xz - vec2(0.0, tE)) - hTerrainH(vHWP.xz + vec2(0.0, tE))));
@@ -171,26 +181,31 @@ export function createTerrain(hf, vegTex, texC, texN) {
         float rubble = smoothstep(0.3, 0.7, tN1 * 0.6 + tN3 * 0.4) * under * smoothstep(-6.0, -1.0, th) * (1.0 - coralK) * 0.6;
 
         vec3 col, nT; float rough;
-        // sand: luminance of the scan drives a white coral palette
-        vec3 sTex = lay2(tLayC, 0.0, tSuv, 0.35);
-        float sl = lum(sTex);
-        vec3 sandC = mix(vec3(0.68, 0.62, 0.5), vec3(0.9, 0.86, 0.78), clamp((sl - 0.18) * 2.2, 0.0, 1.0));
-        sandC *= mix(vec3(1.0), vec3(1.02, 0.97, 0.94), tN2);
-        // dry sand is not paper: it is cream, mottled where the wind sorts it, flecked with shell grit, and at the
-        // top of the swash lies a broken wrack line of weed and husks. The grain alone averages away past a few metres.
+        // sand: luminance of the scan drives a white coral palette (soil is mixed from it too)
         float dry = smoothstep(0.35, 1.0, th) * smoothstep(-0.2, 0.3, th);
-        float mott = hNoise(vHWP.xz * 0.7) * 0.6 + hNoise(vHWP.xz * 2.3) * 0.4;
-        sandC *= mix(vec3(1.0), vec3(0.98, 0.95, 0.88) * (0.88 + 0.2 * mott), dry);
-        float grit = smoothstep(0.6, 0.78, hNoise(vHWP.xz * 1.6 + 5.0) * 0.7 + tN3 * 0.3) * dry;
-        grit *= 0.55 + 0.45 * hNoise(vHWP.xz * 6.0 + 1.0);
-        sandC = mix(sandC, lay2(tLayC, 2.0, vHWP.xz * 0.6, 0.3) * vec3(1.0, 0.94, 0.84), grit * 0.4);
-        // the wrack is scraps a hand across; past a few tens of metres only their average shade is left, without sparkle
-        float wBand = smoothstep(0.1, 0.0, abs(th - 0.8 - (tN1 - 0.5) * 0.5)) * smoothstep(0.3, 0.6, hNoise(vHWP.xz * 0.35 + 6.0));
-        float bits = smoothstep(0.64, 0.8, hNoise(vHWP.xz * 13.0 + 2.0) * 0.55 + hNoise(vHWP.xz * 2.6) * 0.45);
-        float wrack = wBand * mix(bits, 0.14, smoothstep(12.0, 35.0, vDist));
-        // weed dries dark and dull: the leaf scan for its fibre, not for its colour
-        sandC = mix(sandC, vec3(lum(lay2(tLayC, 4.0, vHWP.xz * 0.45, 0.4))) * vec3(0.95, 0.85, 0.66), wrack * 0.8);
-        vec3 sandN = texture(tLayN, vec3(tSuv, 0.0)).rgb * 2.0 - 1.0;
+        vec3 sandC = vec3(0.0), sandN = vec3(0.0);
+        if (wSand + wSoil > 0.0) {
+          vec3 sTex = lay2(tLayC, 0.0, vHWP.xz, 0.25, 0.35);
+          float sl = lum(sTex);
+          sandC = mix(vec3(0.68, 0.62, 0.5), vec3(0.9, 0.86, 0.78), clamp((sl - 0.18) * 2.2, 0.0, 1.0));
+          sandC *= mix(vec3(1.0), vec3(1.02, 0.97, 0.94), tN2);
+          // dry sand is not paper: it is cream, mottled where the wind sorts it, flecked with shell grit, and at the
+          // top of the swash lies a broken wrack line of weed and husks. The grain alone averages away past a few metres.
+          float mott = hNoise(vHWP.xz * 0.7) * 0.6 + hNoise(vHWP.xz * 2.3) * 0.4;
+          sandC *= mix(vec3(1.0), vec3(0.98, 0.95, 0.88) * (0.88 + 0.2 * mott), dry);
+          float grit = smoothstep(0.6, 0.78, hNoise(vHWP.xz * 1.6 + 5.0) * 0.7 + tN3 * 0.3) * dry;
+          grit *= 0.55 + 0.45 * hNoise(vHWP.xz * 6.0 + 1.0);
+          if (grit > 0.0) sandC = mix(sandC, lay2(tLayC, 2.0, vHWP.xz, 0.6, 0.3) * vec3(1.0, 0.94, 0.84), grit * 0.4);
+          // the wrack is scraps a hand across; past a few tens of metres only their average shade is left, without sparkle
+          float wBand = smoothstep(0.1, 0.0, abs(th - 0.8 - (tN1 - 0.5) * 0.5)) * smoothstep(0.3, 0.6, hNoise(vHWP.xz * 0.35 + 6.0));
+          if (wBand > 0.0) {
+            float bits = smoothstep(0.64, 0.8, hNoise(vHWP.xz * 13.0 + 2.0) * 0.55 + hNoise(vHWP.xz * 2.6) * 0.45);
+            float wrack = wBand * mix(bits, 0.14, smoothstep(12.0, 35.0, vDist));
+            // weed dries dark and dull: the leaf scan for its fibre, not for its colour
+            sandC = mix(sandC, vec3(lum(lay2(tLayC, 4.0, vHWP.xz, 0.45, 0.4))) * vec3(0.95, 0.85, 0.66), wrack * 0.8);
+          }
+          if (wSand > 0.0) sandN = lay1(tLayN, 0.0, vHWP.xz, 0.25) * 2.0 - 1.0;
+        }
         // wet sand and the swash line
         float wetZ = 0.0, film = 0.0;
         if (abs(tCs.r) < 70.0 && th < 2.5) {
@@ -200,90 +215,113 @@ export function createTerrain(hf, vegTex, texC, texN) {
         }
         wetZ = max(wetZ, smoothstep(0.25, -0.2, th));
         vec3 wetC = sandC * vec3(0.66, 0.64, 0.6);
-        // a tropical lawn: short green grass with dead patches and twigs, greener where it is shaded and damp
-        vec3 grassC = lay2(tLayC, 3.0, vHWP.xz * 0.3, 0.4);
-        grassC = mix(grassC * vec3(0.62, 0.92, 0.5), grassC * vec3(0.8, 0.9, 0.62), smoothstep(0.3, 0.8, tN2)) * (0.85 + 0.3 * tN3);
-        // forest floor: broad dead leaves over dark humus, the humus showing in patches
-        vec3 leafC = lay2(tLayC, 4.0, vHWP.xz * 0.27, 0.4) * vec3(0.9, 0.88, 0.84);
-        vec3 humusC = lay2(tLayC, 9.0, vHWP.xz * 0.22, 0.4) * vec3(1.25, 1.2, 1.15);
-        float hum = smoothstep(0.4, 0.7, hNoise(vHWP.xz * 0.13 + 8.0) * 0.7 + tN3 * 0.3);
-        vec3 forestC = mix(leafC, humusC, hum * 0.75);
-        // on banks too steep for a map laid flat from above, the ground layers are laid on from the side as well
+        // on banks too steep for a map laid flat from above, the ground layers are laid on from the side as well; a
+        // face that would add under a hundredth is left out, which on open ground saves two of the three samples
         vec3 tw = pow(abs(tNg), vec3(4.0)); tw /= dot(tw, vec3(1.0));
+        tw = max(tw - 0.01, 0.0); tw /= dot(tw, vec3(1.0));
         float bank = smoothstep(0.2, 0.36, tSlope + (tN1 - 0.5) * 0.08) * (1.0 - tFade);
         tBank = bank;
-        if (bank > 0.0) {
-          vec3 bankC = mix(tri(tLayC, 4.0, vHWP, tw, 0.27) * vec3(0.9, 0.88, 0.84), tri(tLayC, 9.0, vHWP, tw, 0.22) * vec3(1.25, 1.2, 1.15), hum * 0.75 + 0.2);
-          forestC = mix(forestC, bankC, bank);
-          grassC = mix(grassC, tri(tLayC, 3.0, vHWP, tw, 0.3) * vec3(0.6, 0.78, 0.48), bank);
+        float hum = smoothstep(0.4, 0.7, hNoise(vHWP.xz * 0.13 + 8.0) * 0.7 + tN3 * 0.3);
+        // a tropical lawn: short green grass with dead patches and twigs, greener where it is shaded and damp
+        vec3 grassC = vec3(0.0);
+        if (wGrass > 0.0) {
+          grassC = lay2(tLayC, 3.0, vHWP.xz, 0.3, 0.4);
+          grassC = mix(grassC * vec3(0.62, 0.92, 0.5), grassC * vec3(0.8, 0.9, 0.62), smoothstep(0.3, 0.8, tN2)) * (0.85 + 0.3 * tN3);
+          if (bank > 0.0) grassC = mix(grassC, tri(tLayC, 3.0, vHWP, tw, 0.3) * vec3(0.6, 0.78, 0.48), bank);
+          // the grass is kept short round the village; beyond it it grows rank: dry and lush patches, tussocks, and
+          // weeds and seedlings in dark clumps a metre or two across
+          float kept = 1.0 - smoothstep(tVil.z * 0.8, tVil.z * 1.5, length(vHWP.xz - tVil.xy));
+          float m1 = hNoise(vHWP.xz * 0.045 + 1.3), m2 = hNoise(vHWP.xz * 0.16 - 2.0), m3 = hNoise(vHWP.xz * 0.7 + 5.0);
+          vec3 rankC = mix(grassC * vec3(0.62, 0.78, 0.5), grassC * vec3(1.02, 0.94, 0.62), smoothstep(0.35, 0.7, m1 * 0.6 + m2 * 0.4));
+          rankC *= 0.8 + 0.35 * m3;
+          rankC = mix(rankC, vec3(0.05, 0.085, 0.03), smoothstep(0.6, 0.8, m2 * 0.5 + m3 * 0.5) * 0.7);
+          grassC = mix(grassC, rankC, (1.0 - kept) * 0.85);
+          // above the plain open ground is not a lawn but tall grass and scrub: darker, olive, broken by bushes
+          // (and on any slope off the flat): a lawn is something people keep
+          float wild = max(smoothstep(10.0, 35.0, th + (tN1 - 0.5) * 12.0), smoothstep(0.06, 0.2, tSlope) * smoothstep(3.0, 9.0, th));
+          float bush = smoothstep(0.42, 0.68, hNoise(vHWP.xz * 0.09) * 0.45 + hNoise(vHWP.xz * 0.27 + 3.0) * 0.3 + tN3 * 0.25);
+          vec3 scrubC = mix(grassC * vec3(0.6, 0.64, 0.46), vec3(0.06, 0.1, 0.035) * (0.8 + 0.5 * tN3), bush * 0.85);
+          grassC = mix(grassC, scrubC, wild);
+          // a field of blades shades itself: seen from afar it is darker than any flat photo of it
+          grassC *= mix(1.0, 0.78, smoothstep(15.0, 120.0, vDist));
         }
-        // the grass is kept short round the village; beyond it it grows rank: dry and lush patches, tussocks, and
-        // weeds and seedlings in dark clumps a metre or two across
-        float kept = 1.0 - smoothstep(tVil.z * 0.8, tVil.z * 1.5, length(vHWP.xz - tVil.xy));
-        float m1 = hNoise(vHWP.xz * 0.045 + 1.3), m2 = hNoise(vHWP.xz * 0.16 - 2.0), m3 = hNoise(vHWP.xz * 0.7 + 5.0);
-        vec3 rankC = mix(grassC * vec3(0.62, 0.78, 0.5), grassC * vec3(1.02, 0.94, 0.62), smoothstep(0.35, 0.7, m1 * 0.6 + m2 * 0.4));
-        rankC *= 0.8 + 0.35 * m3;
-        rankC = mix(rankC, vec3(0.05, 0.085, 0.03), smoothstep(0.6, 0.8, m2 * 0.5 + m3 * 0.5) * 0.7);
-        grassC = mix(grassC, rankC, (1.0 - kept) * 0.85);
-        // above the plain open ground is not a lawn but tall grass and scrub: darker, olive, broken by bushes
-        // (and on any slope off the flat): a lawn is something people keep
-        float wild = max(smoothstep(10.0, 35.0, th + (tN1 - 0.5) * 12.0), smoothstep(0.06, 0.2, tSlope) * smoothstep(3.0, 9.0, th));
-        float bush = smoothstep(0.42, 0.68, hNoise(vHWP.xz * 0.09) * 0.45 + hNoise(vHWP.xz * 0.27 + 3.0) * 0.3 + tN3 * 0.25);
-        vec3 scrubC = mix(grassC * vec3(0.6, 0.64, 0.46), vec3(0.06, 0.1, 0.035) * (0.8 + 0.5 * tN3), bush * 0.85);
-        grassC = mix(grassC, scrubC, wild);
-        // a field of blades shades itself: seen from afar it is darker than any flat photo of it
-        grassC *= mix(1.0, 0.78, smoothstep(15.0, 120.0, vDist));
+        // forest floor: broad dead leaves over dark humus, the humus showing in patches
+        vec3 forestC = vec3(0.0);
+        if (wForest > 0.0) {
+          vec3 leafC = lay2(tLayC, 4.0, vHWP.xz, 0.27, 0.4) * vec3(0.9, 0.88, 0.84);
+          vec3 humusC = lay2(tLayC, 9.0, vHWP.xz, 0.22, 0.4) * vec3(1.25, 1.2, 1.15);
+          forestC = mix(leafC, humusC, hum * 0.75);
+          if (bank > 0.0) {
+            vec3 bankC = mix(tri(tLayC, 4.0, vHWP, tw, 0.27) * vec3(0.9, 0.88, 0.84), tri(tLayC, 9.0, vHWP, tw, 0.22) * vec3(1.25, 1.2, 1.15), hum * 0.75 + 0.2);
+            forestC = mix(forestC, bankC, bank);
+          }
+        }
         // trodden sand and the soil between plants: coral sand with fine litter, a little darker than the beach
-        vec3 pathC = lay2(tLayC, 5.0, vHWP.xz * 0.25, 0.3) * vec3(1.12, 1.08, 1.02);
-        vec3 soilC = mix(pathC, sandC * vec3(0.8, 0.77, 0.72), 0.45 + 0.25 * (1.0 - soil));
+        vec3 pathC = vec3(0.0), soilC = vec3(0.0);
+        if (wPath + wSoil > 0.0) {
+          pathC = lay2(tLayC, 5.0, vHWP.xz, 0.25, 0.3) * vec3(1.12, 1.08, 1.02);
+          soilC = mix(pathC, sandC * vec3(0.8, 0.77, 0.72), 0.45 + 0.25 * (1.0 - soil));
+        }
         // rock: triplanar basalt high up, weathered stone lower down, sea-worn near the water
         float basalt = smoothstep(60.0, 140.0, th + tN2 * 40.0);
-        float shoreR = smoothstep(4.0, 0.5, th);
-        // the dark_rock scan is near black; weathered basalt in daylight reads as a warm charcoal grey
-        vec3 rockC = tri(tLayC, 6.0, vHWP, tw, 0.09) * vec3(2.0, 1.95, 1.9);
-        rockC = mix(tri(tLayC, 7.0, vHWP, tw, 0.07) * vec3(0.8, 0.78, 0.74), rockC, basalt);
-        rockC = mix(rockC, tri(tLayC, 8.0, vHWP, tw, 0.12) * 0.85, shoreR);
-        // cliff faces: vertical runs of water stain and of hanging moss and ferns, densest in the gullies
-        float tU = abs(tNg.x) > abs(tNg.z) ? vHWP.z : vHWP.x;
-        float runs = hNoise(vec2(tU * 0.09, vHWP.y * 0.008)) * 0.65 + hNoise(vec2(tU * 0.35, vHWP.y * 0.03)) * 0.35;
-        float stain = smoothstep(0.5, 0.75, hNoise(vec2(tU * 0.22 + 7.0, vHWP.y * 0.004)));
-        rockC *= 1.0 - 0.45 * stain * wRock;
-        float hang = smoothstep(0.5, 0.68, runs + (tN1 - 0.5) * 0.2) * smoothstep(3.0, 10.0, th) * (1.0 - stain * 0.6);
-        vec3 hangC = tri(tLayC, 4.0, vHWP, tw, 0.2) * vec3(0.32, 0.52, 0.2) * (0.75 + 0.5 * tN3);
-        // moss and ferns cling to ledges
-        float moss = max(smoothstep(0.55, 0.85, tNg.y + (tN1 - 0.5) * 0.3) * smoothstep(3.0, 8.0, th), hang * 0.9);
-        rockC = mix(rockC, mix(vec3(0.13, 0.2, 0.07) * (0.7 + 0.6 * tN3), hangC, hang), moss * 0.88);
-        // from afar a crag on a forested peak is dark wet basalt half hidden under ferns, not a pale smear
-        rockC = mix(rockC, mix(vec3(0.06, 0.062, 0.055), vec3(0.045, 0.07, 0.03), smoothstep(0.35, 0.65, tN2)) * (0.75 + 0.5 * tN3), tFade * 0.7);
-        vec3 rubbleC = lay2(tLayC, 2.0, vHWP.xz * 0.3, 0.3) * vec3(1.05, 0.95, 0.86);
-        // living coral seen through water: browns and ochres, with patches of violet and sea-green
-        float cl = lum(lay2(tLayC, 2.0, vHWP.xz * 0.55, 0.3));
-        vec3 coralC = mix(vec3(0.21, 0.15, 0.09), vec3(0.42, 0.33, 0.2), tN3);
-        coralC = mix(coralC, vec3(0.3, 0.2, 0.24), 0.35 * smoothstep(0.66, 0.82, hNoise(vHWP.xz * 0.09 + 3.0)));
-        coralC = mix(coralC, vec3(0.13, 0.27, 0.22), smoothstep(0.66, 0.84, hNoise(vHWP.xz * 0.07 + 9.0)));
-        // a reef seen from above is the darkest thing in the lagoon
-        coralC *= (0.55 + 1.1 * cl) * 0.72;
+        vec3 rockC = vec3(0.0);
+        if (wRock > 0.0) {
+          float shoreR = smoothstep(4.0, 0.5, th);
+          // the dark_rock scan is near black; weathered basalt in daylight reads as a warm charcoal grey
+          vec3 lowC = basalt < 1.0 ? tri(tLayC, 7.0, vHWP, tw, 0.07) * vec3(0.8, 0.78, 0.74) : vec3(0.0);
+          vec3 highC = basalt > 0.0 ? tri(tLayC, 6.0, vHWP, tw, 0.09) * vec3(2.0, 1.95, 1.9) : vec3(0.0);
+          rockC = mix(lowC, highC, basalt);
+          if (shoreR > 0.0) rockC = mix(rockC, tri(tLayC, 8.0, vHWP, tw, 0.12) * 0.85, shoreR);
+          // cliff faces: vertical runs of water stain and of hanging moss and ferns, densest in the gullies
+          float tU = abs(tNg.x) > abs(tNg.z) ? vHWP.z : vHWP.x;
+          float runs = hNoise(vec2(tU * 0.09, vHWP.y * 0.008)) * 0.65 + hNoise(vec2(tU * 0.35, vHWP.y * 0.03)) * 0.35;
+          float stain = smoothstep(0.5, 0.75, hNoise(vec2(tU * 0.22 + 7.0, vHWP.y * 0.004)));
+          rockC *= 1.0 - 0.45 * stain * wRock;
+          float hang = smoothstep(0.5, 0.68, runs + (tN1 - 0.5) * 0.2) * smoothstep(3.0, 10.0, th) * (1.0 - stain * 0.6);
+          // moss and ferns cling to ledges
+          float moss = max(smoothstep(0.55, 0.85, tNg.y + (tN1 - 0.5) * 0.3) * smoothstep(3.0, 8.0, th), hang * 0.9);
+          if (moss > 0.0) {
+            vec3 hangC = hang > 0.0 ? tri(tLayC, 4.0, vHWP, tw, 0.2) * vec3(0.32, 0.52, 0.2) * (0.75 + 0.5 * tN3) : vec3(0.0);
+            rockC = mix(rockC, mix(vec3(0.13, 0.2, 0.07) * (0.7 + 0.6 * tN3), hangC, hang), moss * 0.88);
+          }
+          // from afar a crag on a forested peak is dark wet basalt half hidden under ferns, not a pale smear
+          rockC = mix(rockC, mix(vec3(0.06, 0.062, 0.055), vec3(0.045, 0.07, 0.03), smoothstep(0.35, 0.65, tN2)) * (0.75 + 0.5 * tN3), tFade * 0.7);
+        }
+        // the knolls' flanks are rubble and dead heads, darker than the open sand: without it the sand on a flank
+        // facing the sun reads from the air as a white rim around every knoll
+        float flank = smoothstep(0.05, 0.22, tSlope) * under * smoothstep(-8.0, -2.0, th) * (1.0 - coralK);
+        vec3 rubbleC = vec3(0.0), coralC = vec3(0.0);
+        if (rubble + flank > 0.0) rubbleC = lay2(tLayC, 2.0, vHWP.xz, 0.3, 0.3) * vec3(1.05, 0.95, 0.86);
+        if (coralK + flank > 0.0) {
+          // living coral seen through water: browns and ochres, with patches of violet and sea-green
+          float cl = lum(lay2(tLayC, 2.0, vHWP.xz, 0.55, 0.3));
+          coralC = mix(vec3(0.21, 0.15, 0.09), vec3(0.42, 0.33, 0.2), tN3);
+          coralC = mix(coralC, vec3(0.3, 0.2, 0.24), 0.35 * smoothstep(0.66, 0.82, hNoise(vHWP.xz * 0.09 + 3.0)));
+          coralC = mix(coralC, vec3(0.13, 0.27, 0.22), smoothstep(0.66, 0.84, hNoise(vHWP.xz * 0.07 + 9.0)));
+          // a reef seen from above is the darkest thing in the lagoon
+          coralC *= (0.55 + 1.1 * cl) * 0.72;
+        }
 
         col = sandC * wSand + grassC * wGrass + soilC * wSoil + forestC * wForest + pathC * wPath + rockC * wRock;
         col = mix(col, wetC, wetZ * wSand);
         // fallen fronds, husks and leaf litter under the palms, broken by patches of clean sand
-        // dry fronds and husks are grey-brown, and on open sand they lie in scraps, not in a stain
-        float blobs = smoothstep(0.38, 0.62, tN3 * 0.55 + hNoise(vHWP.xz * 0.45) * 0.45);
-        blobs *= mix(1.0, smoothstep(0.45, 0.7, hNoise(vHWP.xz * 1.7 + 4.0) * 0.6 + hNoise(vHWP.xz * 5.1) * 0.4), wSand);
-        // in grass the fronds lie in scraps through the blades, not in sheets across the slope: past a few tens of
-        // metres only their average shade is left
-        float scraps = mix(smoothstep(0.58, 0.8, hNoise(vHWP.xz * 0.9 + 2.0) * 0.6 + hNoise(vHWP.xz * 2.7) * 0.4), 0.15, smoothstep(15.0, 60.0, vDist)) * 0.7;
-        float litter = smoothstep(0.15, 0.55, tVg.g) * mix(blobs, scraps, wGrass) * (1.0 - wRock) * (1.0 - wetZ);
-        vec3 litterC = lay2(tLayC, 4.0, vHWP.xz * 0.24, 0.4);
-        // dried fronds and husks go grey-brown in the sun
-        litterC = mix(litterC, vec3(lum(litterC)) * vec3(1.15, 1.0, 0.85), 0.45) * mix(vec3(1.0), vec3(0.85, 0.82, 0.78), wSand);
-        col = mix(col, litterC, litter * 0.8);
+        float litK = smoothstep(0.15, 0.55, tVg.g) * (1.0 - wRock) * (1.0 - wetZ);
+        if (litK > 0.0) {
+          // dry fronds and husks are grey-brown, and on open sand they lie in scraps, not in a stain
+          float blobs = smoothstep(0.38, 0.62, tN3 * 0.55 + hNoise(vHWP.xz * 0.45) * 0.45);
+          blobs *= mix(1.0, smoothstep(0.45, 0.7, hNoise(vHWP.xz * 1.7 + 4.0) * 0.6 + hNoise(vHWP.xz * 5.1) * 0.4), wSand);
+          // in grass the fronds lie in scraps through the blades, not in sheets across the slope: past a few tens of
+          // metres only their average shade is left
+          float scraps = mix(smoothstep(0.58, 0.8, hNoise(vHWP.xz * 0.9 + 2.0) * 0.6 + hNoise(vHWP.xz * 2.7) * 0.4), 0.15, smoothstep(15.0, 60.0, vDist)) * 0.7;
+          float litter = litK * mix(blobs, scraps, wGrass);
+          vec3 litterC = lay2(tLayC, 4.0, vHWP.xz, 0.24, 0.4);
+          // dried fronds and husks go grey-brown in the sun
+          litterC = mix(litterC, vec3(lum(litterC)) * vec3(1.15, 1.0, 0.85), 0.45) * mix(vec3(1.0), vec3(0.85, 0.82, 0.78), wSand);
+          col = mix(col, litterC, litter * 0.8);
+        }
         tCanopy = clamp(max(tVg.r, tVg.g * 0.75) * 1.3 - 0.15, 0.0, 1.0) * (1.0 - tFade) * (1.0 - wRock);
         col = mix(col, rubbleC, rubble);
         col = mix(col, coralC, coralK);
-        // the knolls' flanks are rubble and dead heads, darker than the open sand: without it the sand on a flank
-        // facing the sun reads from the air as a white rim around every knoll
-        float flank = smoothstep(0.05, 0.22, tSlope) * under * smoothstep(-8.0, -2.0, th) * (1.0 - coralK);
         col = mix(col, mix(rubbleC * 0.7, coralC, 0.45), flank * 0.8);
         // past the drawn understory, the floor under the trees is seedlings and shrubs, not bare litter
         float shrubK = smoothstep(30.0, 80.0, vDist) * (1.0 - tFade) * smoothstep(0.25, 0.6, tVg.r) * (1.0 - wRock);
@@ -309,25 +347,24 @@ export function createTerrain(hf, vegTex, texC, texN) {
         /* glsl */ `
         {
           vec3 tnS = sandN;
-          vec3 tnG = ((texture(tLayN, vec3(vHWP.xz * 0.3, 3.0)).rgb * 2.0 - 1.0) * wGrass
-                   + (texture(tLayN, vec3(vHWP.xz * 0.27, 4.0)).rgb * 2.0 - 1.0) * wForest
-                   + (texture(tLayN, vec3(vHWP.xz * 0.25, 5.0)).rgb * 2.0 - 1.0) * (wSoil + wPath)) * (1.0 - 0.75 * tBank);
-          vec3 tnR = (texture(tLayN, vec3(vHWP.zy * 0.08, 6.0 + (1.0 - basalt))).rgb * 2.0 - 1.0) * tw.x
-                   + (texture(tLayN, vec3(vHWP.xz * 0.08, 6.0 + (1.0 - basalt))).rgb * 2.0 - 1.0) * tw.y
-                   + (texture(tLayN, vec3(vHWP.xy * 0.08, 6.0 + (1.0 - basalt))).rgb * 2.0 - 1.0) * tw.z;
+          vec3 tnG = vec3(0.0), tnR = vec3(0.0);
+          if (wGrass > 0.0) tnG += (lay1(tLayN, 3.0, vHWP.xz, 0.3) * 2.0 - 1.0) * wGrass;
+          if (wForest > 0.0) tnG += (lay1(tLayN, 4.0, vHWP.xz, 0.27) * 2.0 - 1.0) * wForest;
+          if (wSoil + wPath > 0.0) tnG += (lay1(tLayN, 5.0, vHWP.xz, 0.25) * 2.0 - 1.0) * (wSoil + wPath);
+          tnG *= 1.0 - 0.75 * tBank;
+          if (wRock > 0.0) tnR = tri(tLayN, 6.0 + (1.0 - basalt), vHWP, tw, 0.08) * 2.0 - 1.0;
           // sand ripples underwater, smoothing out in the swash
           float rip = sin(dot(vHWP.xz, vec2(0.83, 0.55)) * 2.4 + hNoise(vHWP.xz * 0.3) * 4.0);
           vec3 tnU = vec3(cos(dot(vHWP.xz, vec2(0.83, 0.55)) * 2.4) * 0.35 * under, 0.0, 0.0);
           vec3 d = (tnS * (wSand * (1.0 - wetZ * 0.7)) + tnG * 0.8 + tnR * wRock * 1.3) * (1.0 - tFade * 0.7);
-          vec3 tnC = texture(tLayN, vec3(vHWP.xz * 0.55, 2.0)).rgb * 2.0 - 1.0;
-          d += tnC * coralK * 1.6;
+          if (coralK > 0.0) d += (lay1(tLayN, 2.0, vHWP.xz, 0.55) * 2.0 - 1.0) * coralK * 1.6;
           vec3 Nw = normalize(tNg + vec3(d.x, 0.0, d.y) * 0.55 + vec3(tnU.x * 0.83, 0.0, tnU.x * 0.55) * (1.0 - coralK));
           normal = normalize((viewMatrix * vec4(Nw, 0.0)).xyz);
         }
         `
       );
   };
-  mat.customProgramCacheKey = () => 'terrain-v11';
+  mat.customProgramCacheKey = () => 'terrain-v12';
 
   const mesh = new THREE.Mesh(geo, mat);
   mesh.frustumCulled = false;
