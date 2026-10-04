@@ -1,0 +1,13 @@
+node_modules
+dist
+.cache
+.DS_Store
+# runtime assets come from the release bundle: npm run assets
+public/assets/models
+public/assets/flora
+public/assets/tex
+public/assets/.bundle
+# private deploy target and keys
+deploy/local.sh
+*.pem
+.env*

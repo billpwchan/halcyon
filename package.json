@@ -1,0 +1,51 @@
+{
+  "name": "halcyon",
+  "version": "1.0.0",
+  "private": true,
+  "description": "A tropical atoll that lives through a day, rendered live in the browser with three.js: FFT ocean, a lidar-scanned peak, scanned reef and rainforest, whales, weather and a bioluminescent night.",
+  "keywords": [
+    "threejs",
+    "webgl2",
+    "real-time-rendering",
+    "ocean",
+    "fft-ocean",
+    "terrain",
+    "island",
+    "impostors",
+    "creative-coding",
+    "vite"
+  ],
+  "homepage": "https://halcyon.52-198-144-26.sslip.io/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/billpwchan/halcyon.git"
+  },
+  "bugs": {
+    "url": "https://github.com/billpwchan/halcyon/issues"
+  },
+  "license": "MIT",
+  "author": "Bill Chan (https://www.billpwchan.com/)",
+  "type": "module",
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  },
+  "scripts": {
+    "assets": "node scripts/assets.mjs",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1 --port 5281",
+    "assets:tex": "node scripts/textures.mjs",
+    "assets:models": "node scripts/models.mjs",
+    "assets:flora": "node scripts/flora.mjs",
+    "assets:massif": "node scripts/massif.mjs"
+  },
+  "dependencies": {
+    "three": "0.186.1"
+  },
+  "devDependencies": {
+    "@gltf-transform/cli": "^4.5.1",
+    "geotiff": "^2.1.3",
+    "playwright-core": "^1.63.0",
+    "vite": "^8.3.2"
+  }
+}

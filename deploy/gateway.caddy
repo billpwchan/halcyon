@@ -1,0 +1,5 @@
+# HALCYON owns only this hostname and this fragment.
+halcyon.52-198-144-26.sslip.io {
+	encode zstd gzip
+	reverse_proxy halcyon:8080
+}
