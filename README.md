@@ -195,6 +195,10 @@ performance.
 | `scripts/textures.mjs` | Ground and wood surfaces as webp | Poly Haven; needs `cwebp` |
 | `scripts/perf.mjs` | Frame-time percentiles from a headed browser | A running dev server |
 
+## How it was made
+
+Built with [Claude Code](https://claude.com/claude-code) running **Claude Opus 5.5**. I set the direction and reviewed every pass from screenshots and real-GPU frame timings; the model wrote the code, the shaders and the asset pipelines.
+
 ## More scenes
 
 The same author's other real-time scenes, each open source and running in the browser.
