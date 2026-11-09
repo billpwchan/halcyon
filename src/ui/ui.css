@@ -53,6 +53,10 @@ button:focus-visible { outline: 1px solid var(--sun); outline-offset: 3px; }
 .intro-enter:hover svg { transform: translateX(4px); }
 .intro-foot { margin: 4vh 0 0; font-size: 12px; color: var(--ink-3); letter-spacing: 0.06em; opacity: 0; animation: rise 1s var(--ease) 2.2s forwards; }
 .intro.leaving { pointer-events: none; }
+.intro-src { position: absolute; left: 0; right: 0; bottom: max(22px, env(safe-area-inset-bottom)); width: max-content; margin: 0 auto; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--ink-2); text-decoration: none; opacity: 0; animation: rise 1s var(--ease) 2.6s forwards; transition: color 0.3s; }
+.intro-src:hover, .intro-src:focus-visible { color: var(--ink); }
+.intro-src .star { margin-right: 0.8em; letter-spacing: 0; color: var(--sun); }
+.intro.leaving .intro-src { animation: none; opacity: 0; transition: opacity 0.8s var(--ease); }
 .intro.leaving .intro-veil { opacity: 0; transition: opacity 2s var(--ease); }
 .intro.leaving .intro-body { opacity: 0; transform: translateY(-2vh) scale(0.985); filter: blur(6px); transition: opacity 1.1s var(--ease), transform 1.4s var(--ease), filter 1.1s; }
 @keyframes letter { to { opacity: 1; filter: blur(0); transform: none; } }
@@ -190,5 +194,5 @@ button:focus-visible { outline: 1px solid var(--sun); outline-offset: 3px; }
   .panel { right: 10px; bottom: 80px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .intro-title span, .intro-kicker, .intro-line, .intro-load, .intro-foot { animation-duration: 0.01s; animation-delay: 0s; }
+  .intro-title span, .intro-kicker, .intro-line, .intro-load, .intro-foot, .intro-src { animation-duration: 0.01s; animation-delay: 0s; }
 }
